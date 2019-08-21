@@ -72,6 +72,11 @@ with Contrastive Divergence (CD), and returns it.
    contrastive divergence, defaults to 1
 * `monitoring`: a function that is executed after each training epoch.
    It takes an RBM and the epoch as arguments.
+   See also `monitored_fitrbm` for another way of monitoring.
+* `categories`: only relevant if `rbmtype = Softmax0BernoulliRBM`.
+   The number of categories as `Int`, if all variables have the same number
+   of categories, or as `Vector{Int}` that contains the number of categories
+   of the i'th categorical variable in the i'th entry.
 * `upfactor`, `downfactor`: If this function is used for pretraining a part of
    a DBM, it is necessary to multiply the weights of the RBM with factors.
 * `sdlearningrate`/`sdlearningrates`: learning rate(s) for the
@@ -89,6 +94,7 @@ with Contrastive Divergence (CD), and returns it.
    is used. For other types of optimizers, the learning rates must be specified
    in the `optimizer`. For more information on how to write your own optimizer,
    see `AbstractOptimizer`.
+See also: `monitored_fitrbm` for a convenient monitoring of the training.
 """
 function fitrbm(x::Matrix{Float64};
       nhidden::Int = size(x,2),
@@ -102,7 +108,7 @@ function fitrbm(x::Matrix{Float64};
       batchsize::Int = 1,
       rbmtype::DataType = BernoulliRBM,
       startrbm::AbstractRBM = NoRBM(),
-      monitoring::Function = nomonitoring,
+      monitoring::Function = emptyfunc,
 
       # this argument is only relevant for Softmax0BernoulliRBMs:
       categories::Union{Int, Vector{Int}} = 0,
@@ -121,7 +127,7 @@ function fitrbm(x::Matrix{Float64};
          if categories == 0
             error("Argument `categories` required for `Softmax0BernoulliRBM`s.")
          end
-         rbm = initsoftmaxrbm(x, nhidden, categories)
+         rbm = initsoftmax0rbm(x, nhidden, categories)
       else
          rbm = initrbm(x, nhidden, rbmtype)
       end
@@ -213,7 +219,7 @@ function initrbm(x::Array{Float64,2}, nhidden::Int,
       return Binomial2BernoulliRBM(weights, visbias, hidbias)
 
    elseif rbmtype == Softmax0BernoulliRBM
-      error("For initialization of `Softmax0BernoulliRBM`s, please use `initsoftmaxrbm`.")
+      error("For initialization of `Softmax0BernoulliRBM`s, please use `initsoftmax0rbm`.")
 
    else
       error(string("Datatype for RBM is unsupported: ", rbmtype))
@@ -221,11 +227,11 @@ function initrbm(x::Array{Float64,2}, nhidden::Int,
 end
 
 
-function initsoftmaxrbm(x::Matrix{Float64}, nhidden::Int, ncategories::Int)
-   initsoftmaxrbm(x, nhidden, fill(ncategories, div(size(x, 2), ncategories - 1)))
+function initsoftmax0rbm(x::Matrix{Float64}, nhidden::Int, ncategories::Int)
+   initsoftmax0rbm(x, nhidden, fill(ncategories, div(size(x, 2), ncategories - 1)))
 end
 
-function initsoftmaxrbm(x::Matrix{Float64}, nhidden::Int, nscategories::Vector{Int})
+function initsoftmax0rbm(x::Matrix{Float64}, nhidden::Int, nscategories::Vector{Int})
    if size(x, 2) != sum(nscategories) - length(nscategories)
       error("Number of variables ($(size(x, 2))) is not consisten with the " .*
             "given categories ($(nscategories)).")
@@ -250,14 +256,6 @@ function initvisiblebias(x::Array{Float64,2})
       end
    end
    initbias
-end
-
-
-"""
-    nomonitoring
-Accepts a model and a number of epochs and returns nothing.
-"""
-function nomonitoring(bm, epoch)
 end
 
 

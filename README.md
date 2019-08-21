@@ -11,6 +11,13 @@ This Julia package implements algorithms for training and evaluating several typ
 * Exact calculation of the likelihood of BMs (only suitable for small models)
 * Annealed Importance Sampling (AIS) for estimating the likelihood of larger BMs
 
+## Installation
+
+The package is contained in the official Julia package registry and can be installed via
+
+    using Pkg
+    Pkg.add("BoltzmannMachines")
+
 ## Types of Boltzmann Machines
 
 ### Restricted Boltzmann Machines
@@ -38,9 +45,11 @@ All these types of DBMs can be trained using layerwise pre-training and fine-tun
 The following tables provide an overview of the functions of the package, together with a short description. You can find more detailed descriptions for each function using the Julia help mode (entered by typing `?` at the beginning of the Julia command prompt).
 
 ### Data preprocessing
-Continuously valued data or ordinal data can be transformed into probabilities via `intensities` and then fed to `BernoulliRBM`s, like it is usually done when handling grayscale or color intensities in images.
+Continuously valued data or ordinal data can be transformed into probabilities via `intensities_encode` and then fed to `BernoulliRBM`s, like it is usually done when handling grayscale or color intensities in images.
 
 Categorical data can be binary encoded as input for a `Softmax0BernoulliRBM` via `oneornone_encode`.
+
+The back transformations are available via the functions `intensities_decode` and `oneornone_decode`.
 
 ### Functions for Training
 
@@ -69,12 +78,12 @@ Function name    | Short description
 
 ### Partitioned training and joining of models
 
-The following functions may be used to join models fitted on partitioned data sets. The weights cross-linking the models are initialized with zeros.
+To fit `MultimodalDBM`s, the arguments for training its (partitioned) layers can be
+specified using structs of type `TrainLayer` and `TrainPartitionedLayer`
+(best see the [examples](test/examples.jl) for how to use these arguments in `fitdbm` or `stackrbms`).
 
-Function name | Short description
---------------|------------------
-`joindbms`    | Joins two or more DBM models together.
-`joinrbms`    | Joins two or more RBM models to form a joint RBM model of the same type.
+The functions `joindbms` and `joinrbms` can be used to join the weights of two
+separately trained models.
 
 
 ### Functions for evaluating a trained model
@@ -100,11 +109,15 @@ The following words, corresponding to the denominated properties, may stand in p
 * `loglikelihood`
 * `logproblowerbound`
 * `reconstructionerror`
-* `weightsnorm`
 
-The results of evaluations are stored in `Monitor` objects. The evaluations can be plotted by calling the function `plotevaluation` in the submodule `BMPlots` as `BMPlots.plotevaluation(monitor, key)`, with the key being one of the constants `monitor*` defined in the module.
+The results of evaluations are stored in `Monitor` objects. The evaluations can be plotted by calling the function `plotevaluation` of the external plotting package `BoltzmannMachinesPlots`.
 
-For intended usage of these functions, best see the [examples](test/examples.jl).
+The monitoring mechanism is very flexible and allows the specification of callback functions that can be passed to the training functions `fitrbm`, `stackrbms`, `traindbm!`, and `fitdbm`.
+Monitoring can be streamlined with the functions `monitored_fitrbm`,
+`monitored_stackrbms`, `monitored_traindbm!` and `monitored_fitdbm`.
+These functions also allow user-defined monitoring functions that conform to the same argument schema as the above mentioned predefined monitoring functions.
+
+To see how these functions can be used together, best take a look at the [examples](test/examples.jl).
 
 
 ## Examples

@@ -29,6 +29,12 @@ rbm = fitrbm(x; nhidden = 12,
 BoltzmannMachinesPlots.plotevaluation(monitor, monitorexactloglikelihood)
 BoltzmannMachinesPlots.plotevaluation(monitor, monitorreconstructionerror)
 
+# Simplified monitoring:
+monitor, rbm = monitored_fitrbm(x; nhidden = 12,
+      epochs = 80, learningrate = 0.006,
+      monitoringdata = datadict,
+      monitoring = [monitorexactloglikelihood!, monitorreconstructionerror!]);
+
 
 Random.seed!(12);
 
@@ -49,16 +55,23 @@ dbm = fitdbm(x, epochs = 20, learningrate = 0.05,
             monitorexactloglikelihood!(monitor, dbm, epoch, datadict));
 
 # Monitoring plots
-BoltzmannMachinesPlots.plotevaluation(monitor1, monitorreconstructionerror)
-BoltzmannMachinesPlots.plotevaluation(monitor2, monitorreconstructionerror)
-BoltzmannMachinesPlots.plotevaluation(monitor, monitorexactloglikelihood)
+BoltzmannMachinesPlots.plotevaluation(monitor1)
+BoltzmannMachinesPlots.plotevaluation(monitor2)
+BoltzmannMachinesPlots.plotevaluation(monitor)
 
 # Evaluate final result with exact computation of likelihood
 exactloglikelihood(dbm, xtest)
 
 
+# Simplified monitoring
+monitors, dbm = monitored_fitdbm(x; nhiddens = [6,2],
+      epochs = 20, learningrate = 0.05,
+      monitoringpretraining = monitorreconstructionerror!,
+      monitoring = monitorexactloglikelihood!,
+      monitoringdata = datadict);
+
 # If the model has more parameters, in this case more hidden nodes,
-# the exact calclation is not feasible any more:
+# the exact calculation is not feasible any more:
 # We need to calculate the likelihood using AIS.
 
 Random.seed!(12);
@@ -69,6 +82,12 @@ rbm = fitrbm(x, nhidden = 36, epochs = 100,
             monitorloglikelihood!(monitor, rbm, epoch, datadict));
 
 BoltzmannMachinesPlots.plotevaluation(monitor, monitorloglikelihood; sdrange = 3.0)
+
+# Simplified monitoring:
+monitor, rbm = monitored_fitrbm(x, nhidden = 36, epochs = 100,
+      learningrates = [0.008*ones(80); 0.001*ones(20)],
+      monitoring = monitorloglikelihood!,
+      monitoringdata = datadict);
 
 
 # In the DBM, the estimation of the log likelihood is much slower than in the
@@ -86,29 +105,164 @@ traindbm!(dbm, x; epochs = 50, learningrate = 0.008,
 
 BoltzmannMachinesPlots.plotevaluation(monitor, monitorlogproblowerbound; sdrange = 3.0)
 
+
+# Simplified monitoring:
+monitor, dbm = monitored_traindbm!(dbm, x; epochs = 50, learningrate = 0.008,
+      monitoring = monitorlogproblowerbound!,
+      monitoringdata = datadict);
+
 # Evaluate final result with AIS-estimated likelihood
 loglikelihood(dbm, xtest)
 
 
 # ==============================================================================
-# Real valued data: GaussianBernoulliRBM
+# Categorical data: Softmax0BernoulliRBM
 # ------------------------------------------------------------------------------
 
-# Use "iris" dataset as example data to train a GaussianBernoulliRBM
+# Some data set with values in the categories {0, 1, 2}
+# Mixing variables with a different number of categories is also possible
+# (see also example below for a MultimodalDBM with binary and categorical
+# variables).
+xcat = map(v -> max(v, 0),
+      barsandstripes(100, 4) .+ barsandstripes(100, 4) .- barsandstripes(100, 4));
+
+# Encode values for Softmax0BernoulliRBM:
+# Each of the variables, which have three categories, are translated into
+# two binary variables.
+# This encoding is to similiar to the one-hot encoding with the deviation
+# that a zero is encoded as all-zeros.
+# (That way, the encoding of binary variables is not changed.)
+x01 = oneornone_encode(xcat, 3) # 3 categories
+rbm = fitrbm(x01, rbmtype = Softmax0BernoulliRBM, categories = 3,
+      nhidden = 4, epochs = 20);
+
+# The monitoring is omitted here for brevity:
+# The same monitoring and training options as those for BernoulliRBMs
+# are also available for Softmax0BernoulliRBMs.
+
+# A DBM with a Softmax0BernoulliRBM in the first layer and binary hidden layers:
+dbm = fitdbm(x01, pretraining = [
+         TrainLayer(rbmtype = Softmax0BernoulliRBM, categories = 3, nhidden = 4);
+         TrainLayer(nhidden = 4);
+         TrainLayer(nhidden = 2)])
+
+# Getting samples with values in the original sample space:
+oneornone_decode(samples(dbm, 5), 3)
+
+
+# ==============================================================================
+# Mixing binary and categorical data: MultimodalDBM
+# ------------------------------------------------------------------------------
+
+# x1: binary data
+x1 = barsandstripes(100, 4);
+# x2: values with categories {0, 1, 2}
+x2 = map(v -> max(v, 0), x1 .+ barsandstripes(100, 4) .- barsandstripes(100, 4));
+x2 = oneornone_encode(x2, 3)
+x = hcat(x1, x2);
+x, xtest = splitdata(x, 0.3);
+datadict = DataDict("Training data" => x, "Test data" => xtest);
+monitor1 = Monitor(); monitor2 = Monitor(); monitor3 = Monitor(); monitor = Monitor();
+dbm = fitdbm(x; epochspretraining = 50, epochs = 15,
+      learningratepretraining = 0.05, learningrate = 0.1,
+      monitoringdatapretraining = datadict,
+      pretraining = [
+            TrainPartitionedLayer([
+               TrainLayer(nhidden = 5, nvisible = 4,
+                     monitoring = (rbm, epoch, datadict) ->
+                           monitorreconstructionerror!(monitor1, rbm, epoch, datadict));
+               TrainLayer(nhidden = 7,
+                     rbmtype = Softmax0BernoulliRBM, categories = 3,
+                     monitoring = (rbm, epoch, datadict) ->
+                           monitorreconstructionerror!(monitor2, rbm, epoch, datadict))
+            ]),
+            TrainLayer(nhidden = 6,
+                  monitoring = (rbm, epoch, datadict) ->
+                        monitorreconstructionerror!(monitor3, rbm, epoch, datadict))
+      ],
+      monitoring =
+            (dbm, epoch) -> monitorlogproblowerbound!(monitor, dbm, epoch, datadict));
+
+
+# The same with simplified monitoring:
+Random.seed!(1)
+monitors, dbm = monitored_fitdbm(x, epochspretraining = 50, epochs = 15,
+      pretraining = [
+            TrainPartitionedLayer([
+                  TrainLayer(nhidden = 5, nvisible = 4);
+                  TrainLayer(nhidden = 7,
+                        rbmtype = Softmax0BernoulliRBM, categories = 2)]),
+            TrainLayer(nhidden = 6)
+      ],
+      learningratepretraining = 0.05,
+      learningrate = 0.1,
+      monitoringdata = datadict,
+      monitoringpretraining = monitorreconstructionerror!,
+      monitoring = monitorlogproblowerbound!);
+
+# Reconstructionerror of BernoulliRBM in first layer:
+BoltzmannMachinesPlots.plotevaluation(monitors[1][1])
+# Reconstructionerror of Softmax0BernoulliRBM:
+BoltzmannMachinesPlots.plotevaluation(monitors[1][2])
+# Reconstructionerror of second layer:
+BoltzmannMachinesPlots.plotevaluation(monitors[2])
+# Lower bound of likelihood during fine-tuning:
+BoltzmannMachinesPlots.plotevaluation(monitors[3])
+
+
+# It is also possible to combine binary and categorical variables in one RBM,
+# as a Softmax0BernoulliRBM with variables having two categories is equivalent
+# to a BernoulliRBM.
+# Here we do not have a partition then. We can use one Softmax0BernoulliRBM for
+# the visible layer and have to specify the number of categories for each of the
+# variables separately:
+
+categories = [fill(2, 4); fill(3, 4)];
+dbm = fitdbm(x;
+      pretraining = [
+         TrainLayer(nhidden = 7, categories = categories,
+               rbmtype = Softmax0BernoulliRBM);
+         TrainLayer(nhidden = 6)
+      ])
+
+
+# ==============================================================================
+# Real valued data: Intensities, GaussianBernoulliRBM or GaussianBernoulliRBM2
+# ------------------------------------------------------------------------------
+
+# Use "iris" dataset as example data for continuous data
 using DelimitedFiles
-x = convert(Matrix{Float64}, readdlm(
-            joinpath(dirname(pathof(BoltzmannMachines)), "..", "test/data/iris.csv"), ',',
-            header = true)[1][:,1:4]);
+x = convert(Matrix{Float64},
+      readdlm(joinpath(dirname(pathof(BoltzmannMachines)), "..",
+            "test/data/iris.csv"), ',', header = true)[1][:,1:4]);
 Random.seed!(12);
 x, xtest = splitdata(x, 0.3);
 datadict = DataDict("Training data" => x, "Test data" => xtest);
+
+# Using the intensities transformation and a standard BernoulliRBM
+xintensities, xtrafo = intensities_encode(x)
+rbm = fitrbm(xintensities)
+# Transform samples back into the original sample space:
+intensities_decode(samples(rbm, 5), xtrafo)
+
+# Example using a GaussianBernoulliRBM
+Random.seed!(1);
 monitor = Monitor();
 rbm = fitrbm(x, rbmtype = GaussianBernoulliRBM,
-      nhidden = 3, epochs = 70, learningrate = 0.001,
+      nhidden = 3, epochs = 80, learningrate = 0.0005,
       monitoring = (rbm, epoch) ->
             monitorexactloglikelihood!(monitor, rbm, epoch, datadict));
 
 BoltzmannMachinesPlots.plotevaluation(monitor, monitorexactloglikelihood)
+
+# The alternative variant of an RBM with Gaussian visible nodes and binary hidden
+# nodes, as described by Cho et. al. in "Improved learning of Gaussian-Bernoulli
+# restricted Boltzmann machines", is also available as "GaussianBernoulliRBM2".
+rbm = fitrbm(x, rbmtype = GaussianBernoulliRBM2,
+      nhidden = 3, epochs = 70, learningrate = 0.001);
+
+# The same monitoring options as for BernoulliRBMs are available
+# for GaussianBernoulliRBMs and GaussianBernoulliRBM2s.
 
 
 # ==============================================================================
